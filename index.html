@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBD Pipeline Dashboard</title>
+<style>
+  :root{
+    --ink:#1b2027; --ink-soft:#4a525c; --paper:#eef0ee; --panel:#ffffff; --line:#d7dad6;
+    --steel:#2c5f7c; --steel-dark:#1e4256; --resin:#d9791f; --resin-soft:#fbe6cd;
+    --alert:#b03a2e; --alert-soft:#f6dcd8; --done:#3e8574; --done-soft:#dcece7;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Segoe UI',Arial,sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 24px 50px;}
+  header{background:var(--steel-dark);color:#eef3f5;padding:26px 0 22px;margin-bottom:2px;}
+  .header-inner{max-width:1100px;margin:0 auto;padding:0 24px;}
+  h1{font-size:24px;margin:0 0 6px;font-weight:800;}
+  header p{max-width:640px;color:#c3d6dd;font-size:13.5px;line-height:1.5;margin:0 0 18px;}
+  .stat-row{display:flex;border-top:1px solid rgba(255,255,255,.18);flex-wrap:wrap;}
+  .stat{flex:1 1 120px;padding:12px 18px 4px 0;border-right:1px solid rgba(255,255,255,.14);}
+  .stat:last-child{border-right:none;}
+  .stat .num{font-weight:800;font-size:24px;line-height:1;}
+  .stat .lbl{font-size:11px;color:#a9c3cc;margin-top:5px;}
+  .stat.blocked .num{color:#f2a898;} .stat.pending .num{color:#f6c887;} .stat.done .num{color:#8fd6c1;}
+  .refresh-row{display:flex;align-items:center;gap:10px;margin-top:8px;}
+  .refresh-row button{font-size:11.5px;font-weight:600;padding:6px 12px;border-radius:16px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#eef3f5;cursor:pointer;}
+  .refresh-row button:hover{background:rgba(255,255,255,.12);}
+  .refresh-row .ts{font-size:11px;color:#a9c3cc;}
+  section.pipeline{background:var(--panel);border:1px solid var(--line);border-top:none;padding:22px 24px 6px;}
+  .stations{display:grid;grid-template-columns:repeat(9,1fr);gap:0;}
+  .station{display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 4px 14px;cursor:pointer;border-right:1px dashed var(--line);}
+  .station:last-child{border-right:none;}
+  .node{width:26px;height:26px;border-radius:50%;background:var(--panel);border:2px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-bottom:8px;}
+  .station.has-blocked .node{border-color:var(--alert);color:var(--alert);}
+  .station.has-pending .node{border-color:var(--resin);color:var(--resin);}
+  .station.clear .node{border-color:var(--done);color:var(--done);}
+  .stepname{font-size:10px;font-weight:600;line-height:1.2;height:36px;margin-bottom:8px;}
+  .bar-track{width:100%;height:46px;display:flex;flex-direction:column-reverse;background:#f4f5f3;border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-bottom:6px;}
+  .bar-seg.blocked{background:var(--alert);} .bar-seg.pending{background:var(--resin);}
+  .stuck-count{font-weight:800;font-size:16px;}
+  .stuck-lbl{font-size:9px;color:var(--ink-soft);text-transform:uppercase;}
+  .owner-tag{font-size:9px;color:var(--steel);margin-top:4px;background:#eaf1f4;padding:1px 5px;border-radius:2px;}
+  .legend{display:flex;gap:16px;font-size:11.5px;color:var(--ink-soft);padding:12px 0 16px;border-top:1px solid var(--line);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;} .legend i{width:9px;height:9px;border-radius:2px;display:inline-block;}
+  .legend i.blocked{background:var(--alert);} .legend i.pending{background:var(--resin);} .legend i.clear{background:var(--done);}
+  .callout{background:var(--panel);border:1px solid var(--line);border-top:none;padding:16px 24px 20px;font-size:13px;line-height:1.55;}
+  .callout .tag{display:inline-block;font-size:10px;background:var(--resin-soft);color:#8a4c0e;padding:2px 7px;border-radius:3px;margin-right:6px;}
+  section.detail{background:var(--panel);border:1px solid var(--line);border-top:none;padding:20px 24px 6px;}
+  .detail-head{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .detail-head h2{font-size:16px;margin:0;}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;}
+  .filters button{font-size:11.5px;font-weight:600;padding:6px 11px;border-radius:16px;border:1px solid var(--line);background:#f7f7f5;color:var(--ink-soft);cursor:pointer;}
+  .filters button.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .stage-group{margin-bottom:20px;}
+  .stage-group-head{display:flex;align-items:baseline;gap:8px;padding:8px 0;border-bottom:2px solid var(--ink);flex-wrap:wrap;}
+  .stage-group-head .n{font-weight:800;font-size:13.5px;}
+  .stage-group-head .count{margin-left:auto;font-size:11px;color:var(--ink-soft);}
+  .stage-group-head .action{font-size:11.5px;color:var(--ink-soft);font-style:italic;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  thead th{text-align:left;font-size:9.5px;text-transform:uppercase;color:var(--ink-soft);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--line);}
+  tbody td{padding:9px 8px;border-bottom:1px solid #eeefec;vertical-align:top;}
+  .company{font-weight:600;} .meta{color:var(--ink-soft);font-size:11px;}
+  .pill{display:inline-block;font-size:9.5px;padding:2px 6px;border-radius:3px;font-weight:600;}
+  .pill.blocked{background:var(--alert-soft);color:var(--alert);}
+  .pill.pending{background:var(--resin-soft);color:#8a4c0e;}
+  .pill.done{background:var(--done-soft);color:var(--done);}
+  .overdue{font-size:11px;} .overdue.hot{color:var(--alert);font-weight:700;}
+  .reason{font-size:11.5px;color:var(--ink-soft);max-width:220px;}
+  #status-screen{max-width:640px;margin:80px auto;padding:0 24px;text-align:center;font-family:'Segoe UI',Arial,sans-serif;color:var(--ink-soft);}
+  #status-screen h2{color:var(--ink);}
+  #status-screen code{background:#e5e7e3;padding:2px 6px;border-radius:3px;font-size:12px;}
+  .spinner{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--steel);border-radius:50%;margin:0 auto 16px;animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<div id="status-screen">
+  <div class="spinner"></div>
+  <p>Loading live data from the Google Sheet…</p>
+</div>
+
+<div id="app-root" style="display:none;">
+  <div class="wrap" style="padding:0;">
+    <header>
+      <div class="header-inner">
+        <h1>NBD Pipeline Control</h1>
+        <p>Live from your FMS sheet — nine handoffs from first enquiry to first order.</p>
+        <div class="stat-row" id="stat-row"></div>
+        <div class="refresh-row">
+          <button id="refresh-btn">Refresh now</button>
+          <span class="ts" id="last-refreshed"></span>
+        </div>
+      </div>
+    </header>
+    <div class="wrap">
+      <section class="pipeline">
+        <div class="stations" id="stations"></div>
+        <div class="legend">
+          <span><i class="blocked"></i> Blocked — stalled with a reason</span>
+          <span><i class="pending"></i> Pending — awaiting the next action</span>
+          <span><i class="clear"></i> Nothing waiting</span>
+        </div>
+      </section>
+      <div class="callout" id="callout"></div>
+      <section class="detail">
+        <div class="detail-head">
+          <h2>Who's waiting, and why</h2>
+          <div class="filters" id="filters">
+            <button data-f="all" class="active">All stuck</button>
+            <button data-f="blocked">Blocked only</button>
+            <button data-f="pending">Pending only</button>
+            <button data-f="done">Completed</button>
+          </div>
+        </div>
+        <div id="groups"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+// =========================================================================
+// CONFIG — pulled straight from your Apps Script layout
+// =========================================================================
+const SPREADSHEET_ID = '1NFbN_Y60bL6b3ceX4UVmmconJaouGbdeni_fBQGH_dM';
+const SHEET_NAME = 'FMS';
+// How often to auto-refresh (ms). Set to 0 to disable auto-refresh.
+const AUTO_REFRESH_MS = 5 * 60 * 1000; // every 5 minutes
+
+const STEP_NAMES = {
+  1: 'Intro Mail & Checklist',
+  2: 'Research & Financial Check',
+  3: 'Docs to RIL',
+  4: 'Meeting / Visit',
+  5: 'Web Request on RIL Portal',
+  6: 'Code + RTGS Mapping',
+  7: 'Inform Customer + Assign Rep',
+  8: 'Receive MOU Letter',
+  9: 'Customer Places Order'
+};
+const STEP_OWNERS = {
+  1: 'Saijal', 2: 'Saijal', 3: 'Saijal (Polymer Team → RIL)', 4: 'Saijal',
+  5: 'Saijal / KYC Team', 6: 'Assigned DOER', 7: 'Rachel',
+  8: 'Assigned DOER', 9: 'Assigned DOER'
+};
+const STEP_ACTIONS = {
+  1: 'Send intro mail + document checklist, call purchase manager',
+  2: 'Financial check on the enquiry, discuss with Pooja & Rachel',
+  3: 'Check documents, forward to RIL to get code created',
+  4: 'Request a meeting and visit the customer',
+  5: 'Create the web request for the customer on the RIL Portal',
+  6: 'Send code, receive RTGS mapping docs + 3-yr balance sheet',
+  7: 'Inform customer of code creation, assign sales representative',
+  8: 'Receive signed MOU letter from customer',
+  9: 'Customer places first order'
+};
+// 0-based column indices, matching the fixed 60-column FMS layout
+const STEP_COLS = {
+  1: { planned: 11, actual: 12, status: 13, reasonRange: [14, 15] },
+  2: { planned: 16, actual: 17, status: 18, reasonRange: [19, 19] },
+  3: { planned: 20, actual: 21, status: 22, reasonRange: [23, 26] },
+  4: { planned: 27, actual: 28, status: 29, reasonRange: [30, 31] },
+  5: { planned: 32, actual: 33, status: 34, reasonRange: [35, 38] },
+  6: { planned: 39, actual: 40, status: 41, reasonRange: [42, 44] },
+  7: { planned: 45, actual: 46, status: 47, reasonRange: [48, 49] },
+  8: { planned: 50, actual: 51, status: 52, reasonRange: [53, 55] },
+  9: { planned: 56, actual: 57, status: 58, reasonRange: [59, 59] }
+};
+const MIN_COLS = 60;
+
+// =========================================================================
+// FETCH + PARSE — mirrors parseCustomers_() from the Apps Script, but reads
+// the sheet directly via Google's public "gviz" query endpoint. This only
+// works while the sheet is shared as "Anyone with the link — Viewer".
+// =========================================================================
+// Google's gviz endpoint does not send CORS headers, so a plain fetch()
+// from a different origin (like your GitHub Pages domain) fails with
+// "Failed to fetch". JSONP sidesteps this entirely: we ask Google to wrap
+// its JSON response in a callback function name of our choosing, and load
+// it via a <script> tag instead of fetch/XHR — script tags are not subject
+// to the same-origin policy.
+function fetchSheetRows() {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'gvizCallback_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    let settled = false;
+
+    function cleanup() {
+      delete window[callbackName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
+    }
+
+    window[callbackName] = function (data) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!data || data.status === 'error') {
+        const msg = (data && data.errors && data.errors[0] && data.errors[0].detailed_message) || 'Query error';
+        reject(new Error(msg));
+        return;
+      }
+      const rows = (data.table.rows || []).map(r =>
+        (r.c || []).map(c => {
+          if (!c) return '';
+          if (c.f !== undefined && c.f !== null) return c.f;
+          if (c.v !== undefined && c.v !== null) return c.v;
+          return '';
+        })
+      );
+      resolve(rows.map(r => {
+        while (r.length < MIN_COLS) r.push('');
+        return r;
+      }));
+    };
+
+    const url = 'https://docs.google.com/spreadsheets/d/' + SPREADSHEET_ID +
+      '/gviz/tq?tqx=out:json;responseHandler:' + callbackName +
+      '&sheet=' + encodeURIComponent(SHEET_NAME) + '&headers=0&range=A1:BH5000';
+
+    const script = document.createElement('script');
+    script.src = url;
+    script.onerror = function () {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('Could not reach the Google Sheet. Make sure it is shared as "Anyone with the link — Viewer".'));
+    };
+
+    const timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('Timed out waiting for a response from Google Sheets.'));
+    }, 15000);
+
+    document.body.appendChild(script);
+  });
+}
+
+function normalizeHeader(s) {
+  return String(s || '')
+    .replace(/\u00A0/g, ' ')   // non-breaking spaces (common when pasted from forms/docs)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function findHeaderRow(rows) {
+  const scan = Math.min(25, rows.length);
+  for (let i = 0; i < scan; i++) {
+    const c1 = normalizeHeader(rows[i][1]);
+    if (c1.includes('customer') && c1.includes('name')) {
+      return i;
+    }
+  }
+  // Build a diagnostic dump of what we actually saw, to make this fixable
+  // without guesswork if the sheet's header wording differs.
+  const preview = rows.slice(0, scan).map((r, i) =>
+    `Row ${i + 1}: A="${r[0] || ''}"  B="${r[1] || ''}"`
+  ).join('\n');
+  const err = new Error(
+    'Could not find a header row containing "Customer Name" in column B, ' +
+    'within the first ' + scan + ' rows of the FMS sheet.'
+  );
+  err.diagnostic = preview;
+  throw err;
+}
+
+function parseDateDMY(s) {
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +m[6]);
+}
+
+function parseCustomers(rows) {
+  const headerIdx = findHeaderRow(rows);
+  const dataRows = rows.slice(headerIdx + 1);
+  const today = new Date();
+  const customers = [];
+
+  dataRows.forEach(row => {
+    const name = String(row[1] || '').trim();
+    if (!name) return;
+
+    const rec = {
+      name: name,
+      type: String(row[2] || '').trim(),
+      division: String(row[3] || '').trim() || '—',
+      location: String(row[4] || '').trim() || '—',
+      contact: String(row[5] || '').trim(),
+      phone: String(row[6] || '').trim(),
+      mail: String(row[7] || '').trim(),
+      requirement: String(row[8] || '').trim() || '—',
+      source: String(row[9] || '').trim(),
+      leadRemark: String(row[10] || '').trim(),
+      enquiryDate: String(row[0] || '').trim(),
+      currentStage: 10,
+      stageStatus: 'completed_all',
+      reason: '',
+      plannedDate: '',
+      overdueDays: null
+    };
+
+    for (let step = 1; step <= 9; step++) {
+      const cols = STEP_COLS[step];
+      const status = String(row[cols.status] || '').trim();
+      const planned = String(row[cols.planned] || '').trim();
+
+      if (status === 'Done' || status === 'Yes') continue;
+
+      if (status === 'No') {
+        rec.currentStage = step;
+        rec.stageStatus = 'blocked';
+        for (let c = cols.reasonRange[0]; c <= cols.reasonRange[1] && c < row.length; c++) {
+          const val = String(row[c] || '').trim();
+          if (val && val !== 'Not Completed' && val !== 'Completed') {
+            rec.reason = val;
+            break;
+          }
+        }
+        break;
+      }
+
+      rec.currentStage = step;
+      rec.plannedDate = planned;
+      if (planned) {
+        const pd = parseDateDMY(planned);
+        if (pd) rec.overdueDays = Math.round(((today - pd) / 86400000) * 10) / 10;
+        rec.stageStatus = 'pending';
+      } else {
+        rec.stageStatus = 'not_started';
+      }
+      break;
+    }
+
+    rec.stageName = STEP_NAMES[rec.currentStage] || 'Completed / Ordering';
+    customers.push(rec);
+  });
+
+  return customers;
+}
+
+// =========================================================================
+// RENDER — same visual layout as the in-sheet popup dashboard
+// =========================================================================
+let DATA = null;
+let byStage = null;
+let completed = null;
+const stepOrder = [1,2,3,4,5,6,7,8,9];
+
+function buildBuckets(customers) {
+  const bs = {};
+  stepOrder.forEach(s => bs[s] = { blocked: [], pending: [] });
+  const done = [];
+  customers.forEach(c => {
+    if (c.currentStage === 10) { done.push(c); return; }
+    const bucket = bs[c.currentStage];
+    if (!bucket) return;
+    if (c.stageStatus === 'blocked') bucket.blocked.push(c); else bucket.pending.push(c);
+  });
+  return { bs, done };
+}
+
+function renderStats(customers) {
+  const totalBlocked = customers.filter(c => c.stageStatus === 'blocked').length;
+  const totalPending = customers.filter(c => c.stageStatus === 'pending' || c.stageStatus === 'not_started').length;
+  const totalDone = completed.length;
+  const totalStuck = totalBlocked + totalPending;
+  document.getElementById('stat-row').innerHTML = [
+    { n: customers.length, l: 'Enquiries in system', cls: '' },
+    { n: totalStuck, l: 'Currently stuck', cls: 'pending' },
+    { n: totalBlocked, l: 'Blocked, with a reason', cls: 'blocked' },
+    { n: totalDone, l: 'Fully onboarded', cls: 'done' }
+  ].map(s => `<div class="stat ${s.cls}"><div class="num">${s.n}</div><div class="lbl">${s.l}</div></div>`).join('');
+}
+
+function renderStations() {
+  const maxStuck = Math.max(...stepOrder.map(s => byStage[s].blocked.length + byStage[s].pending.length), 1);
+  document.getElementById('stations').innerHTML = stepOrder.map(s => {
+    const b = byStage[s].blocked.length, p = byStage[s].pending.length, total = b + p;
+    const cls = b > 0 ? 'has-blocked' : (p > 0 ? 'has-pending' : 'clear');
+    const bh = 46;
+    const bBlocked = total ? Math.round((b / maxStuck) * bh) : 0;
+    const bPending = total ? Math.round((p / maxStuck) * bh) : 0;
+    return `<div class="station ${cls}" data-stage="${s}">
+      <div class="node">${s}</div>
+      <div class="stepname">${STEP_NAMES[s]}</div>
+      <div class="bar-track">
+        ${b ? `<div class="bar-seg blocked" style="height:${bBlocked}px"></div>` : ''}
+        ${p ? `<div class="bar-seg pending" style="height:${bPending}px"></div>` : ''}
+      </div>
+      <div class="stuck-count">${total || '—'}</div>
+      <div class="stuck-lbl">waiting</div>
+      <div class="owner-tag">${STEP_OWNERS[s]}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderCallout(customers) {
+  const totalBlocked = customers.filter(c => c.stageStatus === 'blocked').length;
+  const ranked = stepOrder.map(s => ({ s, total: byStage[s].blocked.length + byStage[s].pending.length }))
+    .filter(x => x.total > 0).sort((a, b) => b.total - a.total);
+  if (ranked.length) {
+    const top = ranked[0], second = ranked[1];
+    document.getElementById('callout').innerHTML = `
+      <span class="tag">BOTTLENECK</span>
+      <strong>Step ${top.s} — ${STEP_NAMES[top.s]}</strong> has the most leads waiting
+      (${top.total}), owned by ${STEP_OWNERS[top.s]}: ${STEP_ACTIONS[top.s].toLowerCase()}.
+      ${second ? ` Step ${second.s} — ${STEP_NAMES[second.s]} follows with ${second.total} waiting.` : ''}
+      ${completed.length} of ${customers.length} enquiries have completed the full pipeline and are ordering;
+      ${totalBlocked} are actively blocked on something outside routine follow-up.
+    `;
+  } else {
+    document.getElementById('callout').innerHTML = 'Nothing is currently stuck — the pipeline is clear.';
+  }
+}
+
+function reasonOrBrief(c) {
+  if (c.stageStatus === 'blocked') return c.reason || '—';
+  if (c.overdueDays != null) return `Planned ${String(c.plannedDate).split(' ')[0]}`;
+  return '—';
+}
+function overdueCell(c) {
+  if (c.overdueDays == null) return '<span class="overdue">—</span>';
+  const hot = c.overdueDays > 14;
+  return `<span class="overdue ${hot ? 'hot' : ''}">${c.overdueDays}d</span>`;
+}
+function rowHtml(c) {
+  const statusPill = c.stageStatus === 'blocked' ? '<span class="pill blocked">BLOCKED</span>' : '<span class="pill pending">PENDING</span>';
+  return `<tr>
+    <td><div class="company">${c.name}</div><div class="meta">${c.type} · ${c.division} · ${c.location}</div></td>
+    <td class="meta">${c.contact || '—'}<br>${c.phone || ''}</td>
+    <td class="meta">${c.requirement}</td>
+    <td>${statusPill}</td>
+    <td class="reason">${reasonOrBrief(c)}</td>
+    <td>${overdueCell(c)}</td>
+  </tr>`;
+}
+function doneRowHtml(c) {
+  return `<tr>
+    <td><div class="company">${c.name}</div><div class="meta">${c.type} · ${c.division} · ${c.location}</div></td>
+    <td class="meta">${c.contact || '—'}<br>${c.phone || ''}</td>
+    <td class="meta">${c.requirement}</td>
+    <td><span class="pill done">ORDERING</span></td>
+    <td class="reason">Completed all 9 steps</td>
+    <td>—</td>
+  </tr>`;
+}
+function renderGroups(filter) {
+  const groupsEl = document.getElementById('groups');
+  let html = '';
+  stepOrder.forEach(s => {
+    let list = [];
+    if (filter === 'all') list = [...byStage[s].blocked, ...byStage[s].pending];
+    else if (filter === 'blocked') list = byStage[s].blocked;
+    else if (filter === 'pending') list = byStage[s].pending;
+    if (filter === 'done') return;
+    if (!list.length) return;
+    list.sort((a, b) => (b.overdueDays || 0) - (a.overdueDays || 0));
+    html += `<div class="stage-group" id="stage-${s}">
+      <div class="stage-group-head">
+        <span class="n">Step ${s} · ${STEP_NAMES[s]}</span>
+        <span class="action">— ${STEP_ACTIONS[s]}</span>
+        <span class="count">${list.length} waiting · owner: ${STEP_OWNERS[s]}</span>
+      </div>
+      <table><thead><tr><th>Company</th><th>Contact</th><th>Requirement</th><th>Status</th><th>Reason / Planned</th><th>Overdue</th></tr></thead>
+      <tbody>${list.map(rowHtml).join('')}</tbody></table>
+    </div>`;
+  });
+  if (filter === 'done') {
+    html = `<div class="stage-group">
+      <div class="stage-group-head"><span class="n">Fully onboarded — placing orders</span><span class="count">${completed.length} customers</span></div>
+      <table><thead><tr><th>Company</th><th>Contact</th><th>Requirement</th><th>Status</th><th>Reason / Planned</th><th>Overdue</th></tr></thead>
+      <tbody>${completed.map(doneRowHtml).join('')}</tbody></table>
+    </div>`;
+  }
+  groupsEl.innerHTML = html || '<p style="color:var(--ink-soft);font-size:12px;">Nothing in this view.</p>';
+}
+
+function renderAll(customers) {
+  const buckets = buildBuckets(customers);
+  byStage = buckets.bs;
+  completed = buckets.done;
+  renderStats(customers);
+  renderStations();
+  renderCallout(customers);
+  const activeBtn = document.querySelector('#filters button.active');
+  renderGroups(activeBtn ? activeBtn.dataset.f : 'all');
+  document.getElementById('last-refreshed').textContent = 'Last refreshed: ' + new Date().toLocaleString();
+}
+
+function showStatusMessage(html) {
+  document.getElementById('status-screen').innerHTML = html;
+  document.getElementById('status-screen').style.display = 'block';
+  document.getElementById('app-root').style.display = 'none';
+}
+
+async function loadAndRender() {
+  try {
+    const rows = await fetchSheetRows();
+    const customers = parseCustomers(rows);
+    DATA = customers;
+    document.getElementById('status-screen').style.display = 'none';
+    document.getElementById('app-root').style.display = 'block';
+    renderAll(customers);
+  } catch (err) {
+    const diagnosticHtml = err.diagnostic
+      ? `<pre style="text-align:left;background:#f4f5f3;border:1px solid #d7dad6;border-radius:4px;padding:12px;font-size:11.5px;overflow-x:auto;max-width:100%;">${err.diagnostic.replace(/</g, '&lt;')}</pre>`
+      : '';
+    showStatusMessage(`
+      <h2>Could not load the dashboard</h2>
+      <p>${err.message}</p>
+      <p>Double-check that the Google Sheet is shared as <code>Anyone with the link — Viewer</code>,
+      and that the tab is still named <code>FMS</code>.</p>
+      ${diagnosticHtml}
+      <p><button id="retry-btn" style="padding:8px 16px;border-radius:16px;border:1px solid #d7dad6;background:#fff;cursor:pointer;">Try again</button></p>
+    `);
+    const retryBtn = document.getElementById('retry-btn');
+    if (retryBtn) retryBtn.addEventListener('click', loadAndRender);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadAndRender();
+  if (AUTO_REFRESH_MS > 0) setInterval(loadAndRender, AUTO_REFRESH_MS);
+});
+
+document.addEventListener('click', e => {
+  const refreshBtn = e.target.closest('#refresh-btn');
+  if (refreshBtn) { loadAndRender(); return; }
+
+  const filterBtn = e.target.closest('#filters button');
+  if (filterBtn) {
+    document.querySelectorAll('#filters button').forEach(b => b.classList.remove('active'));
+    filterBtn.classList.add('active');
+    renderGroups(filterBtn.dataset.f);
+    return;
+  }
+
+  const station = e.target.closest('.station');
+  if (station) {
+    document.querySelectorAll('#filters button').forEach(b => b.classList.remove('active'));
+    const allBtn = document.querySelector('#filters button[data-f="all"]');
+    if (allBtn) allBtn.classList.add('active');
+    renderGroups('all');
+    const target = document.getElementById('stage-' + station.dataset.stage);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+</script>
+</body>
+</html>
