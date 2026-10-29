@@ -195,6 +195,12 @@
   .dq summary{cursor:pointer;font-weight:600;} .dq ul{margin:8px 0 2px;padding-left:20px;max-height:160px;overflow:auto;line-height:1.6;}
   footer{text-align:center;color:var(--faint);font:400 11px var(--mono);padding:48px 0 40px;}
 
+  /* ---- tabs ---- */
+  .tabs{display:flex;gap:6px;justify-content:center;padding:5px;margin:0 auto;width:max-content;max-width:100%;background:rgba(255,255,255,.88);border:1px solid var(--blue-line);border-radius:999px;box-shadow:var(--shadow);}
+  .tabs button{font:600 13px var(--sans);padding:10px 20px;border-radius:999px;border:none;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+  .tabs button:hover{background:var(--blue-soft);} .tabs button.active{background:var(--navy);color:#fff;}
+  .tab-badge{font:500 10.5px var(--mono);background:var(--blue-soft);color:var(--blue);padding:2px 8px;border-radius:99px;} .tabs button.active .tab-badge{background:rgba(255,255,255,.2);color:#fff;} .tab-badge:empty{display:none;}
+  .tabpane{display:none;} .tabpane.active{display:block;}
   /* ---- orders ---- */
   .pill.ord{background:var(--done-soft);color:var(--done);} .pill.book{background:var(--blue-soft);color:var(--blue);}
   .pill.flag{background:var(--pend-soft);color:var(--pend);} .pill.none{background:#eef2f9;color:var(--muted);}
@@ -242,7 +248,7 @@
   @media (max-width:640px){
     .container{padding:0 16px;} .topbar-inner{flex-wrap:wrap;gap:10px;} .search{order:5;flex-basis:100%;} .brand-sub{display:none;}
     .user-meta{display:none;} .user{padding:5px;} .stations,.stat-row,.owners,.skel-grid{grid-template-columns:1fr;} .hero{padding:40px 0 32px;}
-    .stage-group{padding:16px 14px 6px;} .frow{grid-template-columns:110px 1fr 84px;} .dq{padding:10px 16px;}
+    .tabs{width:100%;} .tabs button{flex:1;justify-content:center;padding:10px 8px;font-size:12px;} .stage-group{padding:16px 14px 6px;} .frow{grid-template-columns:110px 1fr 84px;} .dq{padding:10px 16px;}
     .table-wrap{max-height:none;}
     .stage-group table{min-width:0;} .stage-group thead{display:none;}
     .stage-group table,.stage-group tbody,.stage-group tr,.stage-group td{display:block;width:100%;}
@@ -253,6 +259,7 @@
     .reason{max-width:none;}
   }
   @media print{
+    .tabpane{display:block!important;} .tabs{display:none!important;}
     .topbar,.toolbar .filters,.selects,.drawer,.scrim,.toast,.refresh-row .pill-btn,.acts,.spark,.stale,.search{display:none!important;}
     body{background:#fff;} .card{box-shadow:none;} .station:hover{transform:none;}
     .card,.stat,.station{break-inside:avoid;} .table-wrap{max-height:none;overflow:visible;}
@@ -311,6 +318,11 @@
       <div class="refresh-row"><span class="ts" id="last-refreshed"></span><button class="pill-btn" id="print-btn" aria-label="Print or save as PDF"></button></div>
     </section>
 
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
+      <button role="tab" id="tabbtn-overview" data-tab="overview" aria-selected="true" class="active">Pipeline overview</button>
+      <button role="tab" id="tabbtn-work" data-tab="work" aria-selected="false">Orders &amp; follow-ups <span class="tab-badge" id="badge-work"></span></button>
+    </nav>
+    <div class="tabpane active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
     <section class="section" style="margin-top:8px;">
       <div class="section-head"><div class="eyebrow">Overview</div><h2>Where the pipeline stands</h2></div>
       <div class="stat-row" id="stat-row"></div>
@@ -341,14 +353,16 @@
       <div class="card panel" id="aging"></div>
     </section>
 
+    <section class="section">
+      <div class="card callout" id="callout"></div>
+    </section>
+
+    </div>
+    <div class="tabpane" id="tab-work" role="tabpanel" aria-labelledby="tabbtn-work">
     <section class="section" id="orders-sec">
       <div class="section-head"><div class="eyebrow">Orders</div><h2>Who has actually ordered</h2></div>
       <div class="recon" id="recon"></div>
       <div class="card panel" id="orders-panel"></div>
-    </section>
-
-    <section class="section">
-      <div class="card callout" id="callout"></div>
     </section>
 
     <section class="section" id="detail">
@@ -375,6 +389,7 @@
       </div>
       <div id="groups"></div>
     </section>
+    </div>
     <footer>Reads live from Google Sheets · auto-refreshes every 5 minutes</footer>
   </div>
 </div>
@@ -612,6 +627,7 @@ function parseCustomers(rows) {
 // =========================================================================
 let DATA = null, byStage = null, completed = null, AN = null, VISIBLE = [];
 const stepOrder = [1,2,3,4,5,6,7,8,9];
+let TAB = 'overview';
 const F = { f: 'all', o: '', l: '', t: '', q: '' };
 let SORT = { k: 'overdue', d: -1 };
 
@@ -1010,12 +1026,14 @@ function renderGroups() {
 // ---- controls + URL-hash state ----
 function saveHash() {
   const p = new URLSearchParams();
+  if (TAB !== 'overview') p.set('tab', TAB);
   if (F.f !== 'all') p.set('f', F.f);
   ['o', 'l', 't', 'q'].forEach(k => F[k] && p.set(k, F[k]));
   try { const h = p.toString(); history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) {}
 }
 function loadHash() {
   const p = new URLSearchParams(location.hash.slice(1));
+  TAB = p.get('tab') === 'work' ? 'work' : 'overview';
   F.f = p.get('f') || 'all'; F.o = p.get('o') || ''; F.l = p.get('l') || ''; F.t = p.get('t') || ''; F.q = p.get('q') || '';
 }
 function fillSelect(id, label, values, cur) {
@@ -1034,6 +1052,15 @@ function syncControls() {
   $('search').value = F.q;
 }
 function setFilter(f) { F.f = f; syncControls(); saveHash(); renderGroups(); }
+function setTab(t, scroll) {
+  TAB = t === 'work' ? 'work' : 'overview';
+  document.querySelectorAll('.tabs button').forEach(b => { const on = b.dataset.tab === TAB; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); });
+  $('tab-overview').classList.toggle('active', TAB === 'overview');
+  $('tab-work').classList.toggle('active', TAB === 'work');
+  saveHash();
+  if (scroll) window.scrollTo({ top: Math.max(0, $('tabs').getBoundingClientRect().top + window.scrollY - 84), behavior: 'smooth' });
+}
+function updateBadges() { $('badge-work').textContent = active().length + ' open'; }
 
 // =========================================================================
 // DRAWER
@@ -1100,7 +1127,7 @@ function renderAll(customers) {
   AN = computeAnalytics(customers);
   buildSelects(); syncControls();
   renderStats(customers); renderFunnel(); renderCycle(); renderStations();
-  renderOwners(); renderAging(); renderOrders(); renderCallout(customers); renderDQ(); renderGroups();
+  renderOwners(); renderAging(); renderOrders(); renderCallout(customers); renderDQ(); renderGroups(); updateBadges();
   $('last-refreshed').textContent = 'Last refreshed: ' + new Date().toLocaleString();
 }
 function showStatusMessage(html) {
@@ -1141,9 +1168,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('export-btn').innerHTML = icon('download') + 'Export CSV';
   $('print-btn').innerHTML = icon('print') + 'Print / PDF';
   loadHash();
+  setTab(TAB, false);
   loadAndRender();
   if (AUTO_REFRESH_MS > 0) setInterval(() => loadAndRender(false), AUTO_REFRESH_MS);
-  $('search').addEventListener('input', e => { F.q = e.target.value.trim(); saveHash(); if (DATA) renderGroups(); });
+  $('search').addEventListener('input', e => { F.q = e.target.value.trim(); if (F.q) setTab('work', false); saveHash(); if (DATA) renderGroups(); });
   [['f-owner', 'o'], ['f-loc', 'l'], ['f-type', 't']].forEach(([id, k]) =>
     $(id).addEventListener('change', e => { F[k] = e.target.value; saveHash(); if (DATA) renderGroups(); }));
   $('reset-btn').addEventListener('click', () => { Object.assign(F, { f: 'all', o: '', l: '', t: '', q: '' }); buildSelects(); syncControls(); saveHash(); renderGroups(); });
@@ -1162,10 +1190,12 @@ document.addEventListener('keydown', e => {
 });
 
 document.addEventListener('click', e => {
+  const tabBtn = e.target.closest('.tabs button');
+  if (tabBtn) { setTab(tabBtn.dataset.tab, true); return; }
   if (e.target.closest('#refresh-btn')) { loadAndRender(true); return; }
   if (e.target.closest('#drawer-close')) { closeDrawer(); return; }
   if (e.target.closest('#bell')) {
-    setFilter('blocked');
+    setTab('work', false); setFilter('blocked');
     const d = $('detail'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
@@ -1191,6 +1221,7 @@ document.addEventListener('click', e => {
 
   const station = e.target.closest('.station');
   if (station) {
+    setTab('work', false);
     F.f = 'all'; F.o = ''; F.l = ''; F.t = ''; F.q = '';
     buildSelects(); syncControls(); saveHash(); renderGroups();
     const target = $('stage-' + station.dataset.stage) || $('detail');
