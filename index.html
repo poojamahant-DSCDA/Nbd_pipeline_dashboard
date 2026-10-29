@@ -74,7 +74,7 @@
   .tile svg{width:19px;height:19px;}
 
   /* ---- stat cards ---- */
-  .stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+  .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
   .stat{padding:24px;position:relative;overflow:hidden;}
   .stat::after{content:"";position:absolute;right:-50px;top:-60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(29,79,184,.09),rgba(29,79,184,0) 70%);pointer-events:none;}
   .stat .num{font-family:var(--serif);font-weight:700;font-size:40px;line-height:1;margin:22px 0 8px;color:var(--navy);}
@@ -195,6 +195,15 @@
   .dq summary{cursor:pointer;font-weight:600;} .dq ul{margin:8px 0 2px;padding-left:20px;max-height:160px;overflow:auto;line-height:1.6;}
   footer{text-align:center;color:var(--faint);font:400 11px var(--mono);padding:48px 0 40px;}
 
+  /* ---- orders ---- */
+  .pill.ord{background:var(--done-soft);color:var(--done);} .pill.book{background:var(--blue-soft);color:var(--blue);}
+  .pill.flag{background:var(--pend-soft);color:var(--pend);} .pill.none{background:#eef2f9;color:var(--muted);}
+  .qty{font:600 12px var(--mono);color:var(--navy);line-height:1.4;white-space:nowrap;} .qty small{display:block;font:400 10.5px var(--mono);color:var(--muted);}
+  .recon{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:20px;}
+  .recon .card{padding:18px 20px;} .recon h4{font-family:var(--serif);font-weight:600;font-size:16px;color:var(--navy);display:flex;align-items:center;gap:10px;}
+  .recon ul{list-style:none;margin:10px 0 0;padding:0;font-size:12.5px;max-height:200px;overflow:auto;}
+  .recon li{padding:7px 0;border-bottom:1px solid #edf2fa;display:flex;justify-content:space-between;gap:10px;cursor:pointer;} .recon li:hover{background:rgba(230,238,252,.45);}
+  #orders-panel tbody tr{cursor:pointer;}
   /* ---- drawer ---- */
   .scrim{position:fixed;inset:0;background:rgba(17,42,94,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;}
   .scrim.open{opacity:1;pointer-events:auto;}
@@ -229,7 +238,7 @@
   .skel.t{height:46px;max-width:380px;margin:0 auto 28px;}
   @keyframes shimmer{to{background-position:-200% 0;}}
 
-  @media (max-width:1000px){.stations,.owners{grid-template-columns:repeat(2,1fr);}.stat-row{grid-template-columns:repeat(2,1fr);}.grid2{grid-template-columns:1fr;}}
+  @media (max-width:1000px){.stations,.owners{grid-template-columns:repeat(2,1fr);}.stat-row{grid-template-columns:repeat(2,1fr);}.grid2,.recon{grid-template-columns:1fr;}}
   @media (max-width:640px){
     .container{padding:0 16px;} .topbar-inner{flex-wrap:wrap;gap:10px;} .search{order:5;flex-basis:100%;} .brand-sub{display:none;}
     .user-meta{display:none;} .user{padding:5px;} .stations,.stat-row,.owners,.skel-grid{grid-template-columns:1fr;} .hero{padding:40px 0 32px;}
@@ -332,6 +341,12 @@
       <div class="card panel" id="aging"></div>
     </section>
 
+    <section class="section" id="orders-sec">
+      <div class="section-head"><div class="eyebrow">Orders</div><h2>Who has actually ordered</h2></div>
+      <div class="recon" id="recon"></div>
+      <div class="card panel" id="orders-panel"></div>
+    </section>
+
     <section class="section">
       <div class="card callout" id="callout"></div>
     </section>
@@ -348,6 +363,7 @@
           <button data-f="blocked">Blocked only</button>
           <button data-f="pending">Pending only</button>
           <button data-f="done">Completed</button>
+          <button data-f="ordered">Has orders</button>
         </div>
         <div class="selects">
           <select id="f-owner" aria-label="Filter by owner"></select>
@@ -410,6 +426,9 @@ const STEP_COLS = {
   9: { planned: 56, actual: 57, status: 58, reasonRange: [59, 59] }
 };
 const MIN_COLS = 60;
+const ORDERS_SHEET = 'Orders';                 // cols: B customer, D material, E ordered, F confirmed, G dispatched
+const ORDER_ALIASES = { KPTPIPES: 'KPTPIPINGSYSTEM' };   // FMS name -> Orders-sheet name, when they differ a lot
+let ORD_OK = false, ORD_ERR = '';
 
 // Aging buckets: key, label, colour (rgb), used by stacked bar + heatmap
 const BUCKETS = [
@@ -431,7 +450,7 @@ function rawToText(v) {
   return p(m[3]) + '/' + p(+m[2] + 1) + '/' + m[1] + ' ' + p(m[4] || 0) + ':' + p(m[5] || 0) + ':' + p(m[6] || 0);
 }
 
-function fetchSheetRows() {
+function fetchSheetRows(sheet, range, minCols) {
   return new Promise((resolve, reject) => {
     const callbackName = 'gvizCallback_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
     let settled = false;
@@ -455,11 +474,11 @@ function fetchSheetRows() {
           return '';
         })
       );
-      resolve(rows.map(r => { while (r.length < MIN_COLS) r.push(''); return r; }));
+      resolve(rows.map(r => { while (r.length < minCols) r.push(''); return r; }));
     };
     const url = 'https://docs.google.com/spreadsheets/d/' + SPREADSHEET_ID +
       '/gviz/tq?tqx=out:json;responseHandler:' + callbackName +
-      '&sheet=' + encodeURIComponent(SHEET_NAME) + '&headers=0&range=A1:BH5000&_=' + Date.now();
+      '&sheet=' + encodeURIComponent(sheet) + '&headers=0&range=' + range + '&_=' + Date.now();
     const script = document.createElement('script');
     script.src = url;
     script.onerror = function () {
@@ -700,10 +719,79 @@ function sparkline(vals) {
 // =========================================================================
 // RENDER — overview, analytics, owners, aging
 // =========================================================================
+// ---------- Orders sheet ----------
+const normName = s => String(s || '').toUpperCase().replace(/\(P\)/g, ' ').replace(/[^A-Z0-9]+/g, ' ')
+  .replace(/\b(PVT|PRIVATE|LTD|LIMITED|LLP|AND)\b/g, ' ').replace(/\s+/g, '');
+const fmtQ = n => (Math.round(n * 100) / 100).toLocaleString('en-IN');
+function parseOrders(rows) {
+  let h = -1;
+  for (let i = 0; i < Math.min(25, rows.length); i++) if (normalizeHeader(rows[i][1]).includes('customer')) { h = i; break; }
+  const om = {}, num = v => parseFloat(String(v).replace(/,/g, '')) || 0;
+  rows.slice(h + 1).forEach(r => {
+    const nm = String(r[1] || '').trim(), k = normName(nm);
+    if (!k || k === 'CUSTOMERNAMESOLDTO') return;
+    const o = om[k] || (om[k] = { lines: 0, qty: 0, conf: 0, disp: 0, mats: {}, locs: {} });
+    o.lines++; o.qty += num(r[4]); o.conf += num(r[5]); o.disp += num(r[6]);
+    const m = String(r[3] || '').trim(), l = String(r[2] || '').trim();
+    if (m) o.mats[m] = (o.mats[m] || 0) + num(r[6]);
+    if (l) o.locs[l] = (o.locs[l] || 0) + num(r[6]);
+  });
+  return om;
+}
+function matchOrder(om, key) {
+  key = ORDER_ALIASES[key] || key; if (!key) return null;
+  const hit = Object.keys(om).filter(k => k === key || (key.length >= 8 && k.length >= 8 && (k.startsWith(key) || key.startsWith(k))));
+  if (!hit.length) return null;
+  const m = { lines: 0, qty: 0, conf: 0, disp: 0, mats: {}, locs: {} };
+  hit.forEach(k => { const o = om[k]; m.lines += o.lines; m.qty += o.qty; m.conf += o.conf; m.disp += o.disp;
+    for (const x in o.mats) m.mats[x] = (m.mats[x] || 0) + o.mats[x];
+    for (const x in o.locs) m.locs[x] = (m.locs[x] || 0) + o.locs[x]; });
+  return m;
+}
+function attachOrders(cs, om) { cs.forEach(c => { c.orders = om ? matchOrder(om, normName(c.name)) : null; }); }
+function ordStats() {
+  const l = DATA.filter(c => c.orders), sum = k => l.reduce((a, c) => a + c.orders[k], 0);
+  return { ordered: l.filter(c => c.orders.disp > 0).length, booked: l.filter(c => c.orders.disp <= 0).length, qty: sum('qty'), conf: sum('conf'), disp: sum('disp') };
+}
+const topMats = o => Object.entries(o.mats).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, q]) => m + ' ' + fmtQ(q)).join(', ') || '—';
+function ordCell(c) {
+  if (!ORD_OK) return '<span class="meta">—</span>';
+  if (!c.orders) return c.currentStage === 10 ? '<span class="pill flag">NO ORDERS YET</span>' : '<span class="meta">—</span>';
+  const o = c.orders;
+  return `<div class="qty">${fmtQ(o.disp)} MT dispatched<small>${fmtQ(o.conf)} confirmed · ${fmtQ(o.qty)} ordered · ${o.lines} lines</small></div>`;
+}
+function ordersBlock(c) {
+  if (!ORD_OK) return '';
+  if (!c.orders) return `<h4>Orders</h4><p class="meta" style="margin:0 0 22px">No orders found in the Orders sheet${c.currentStage === 10 ? ' — the FMS says this customer is ordering, so worth checking.' : '.'}</p>`;
+  const o = c.orders, locs = Object.keys(o.locs).join(', ') || '—';
+  return `<h4>Orders</h4><dl class="kv"><dt>Ordered</dt><dd>${fmtQ(o.qty)} MT</dd><dt>Confirmed</dt><dd>${fmtQ(o.conf)} MT</dd><dt>Dispatched</dt><dd><b>${fmtQ(o.disp)} MT</b></dd><dt>Order lines</dt><dd>${o.lines}</dd><dt>Top grades</dt><dd>${esc(topMats(o))}</dd><dt>Plants</dt><dd>${esc(locs)}</dd></dl>`;
+}
+function renderOrders() {
+  const rc = $('recon'), pn = $('orders-panel');
+  if (!ORD_OK) { rc.innerHTML = ''; pn.innerHTML = `<h3>Orders sheet not loaded</h3><div class="psub">${esc(ORD_ERR)} Check that the tab is named <code>${ORDERS_SHEET}</code> and the file is shared as “Anyone with the link — Viewer”.</div>`; return; }
+  const withO = DATA.filter(c => c.orders).sort((a, b) => b.orders.disp - a.orders.disp);
+  const good = DATA.filter(c => c.currentStage === 10 && c.orders && c.orders.disp > 0);
+  const stale = withO.filter(c => c.currentStage !== 10);
+  const none = DATA.filter(c => c.currentStage === 10 && !(c.orders && c.orders.disp > 0));
+  const box = (t, sub, cls, list, why) => `<div class="card"><h4>${t} <span class="pill ${cls}">${list.length}</span></h4><div class="meta" style="margin-top:4px">${sub}</div>
+    <ul>${list.length ? list.map(c => `<li data-id="${c.id}" tabindex="0"><span>${esc(c.name)}</span><span class="meta">${esc(why(c))}</span></li>`).join('') : '<li><span class="meta">None</span></li>'}</ul></div>`;
+  rc.innerHTML = box('Confirmed buyers', 'FMS says ordering and the Orders sheet shows dispatches.', 'ord', good, c => fmtQ(c.orders.disp) + ' MT')
+    + box('Ordering, FMS not updated', 'Orders exist but the FMS step 9 isn’t marked done.', 'flag', stale, c => 'Step ' + c.currentStage + ' · ' + fmtQ(c.orders.disp) + ' MT')
+    + box('Marked ordering, no dispatch', 'FMS says ordering but no dispatched quantity found.', 'none', none, c => c.orders ? 'booked only' : 'no orders');
+  const rows = withO.map(c => {
+    const o = c.orders, pill = c.currentStage !== 10 ? `<span class="pill flag">UPDATE FMS · STEP ${c.currentStage}</span>` : o.disp > 0 ? '<span class="pill ord">ORDERING ✓</span>' : '<span class="pill book">BOOKED, NOT DISPATCHED</span>';
+    return `<tr tabindex="0" data-id="${c.id}"><td><div class="company">${esc(c.name)}</div><div class="meta">${esc(c.type)} · ${esc(c.location)}</div></td><td class="meta">${c.currentStage === 10 ? 'Completed' : 'Step ' + c.currentStage}</td>
+      <td class="qty">${fmtQ(o.qty)}</td><td class="qty">${fmtQ(o.conf)}</td><td class="qty">${fmtQ(o.disp)}</td><td class="meta">${o.lines}</td><td class="meta">${esc(topMats(o))}</td><td>${pill}</td></tr>`;
+  }).join('');
+  pn.innerHTML = `<h3>Pipeline customers in the Orders sheet</h3><div class="psub">Quantities in MT, summed over all order lines and matched to FMS customers by company name. Click a row for detail.</div>
+    <div class="table-wrap"><table><thead><tr><th>Company</th><th>FMS stage</th><th>Ordered</th><th>Confirmed</th><th>Dispatched</th><th>Lines</th><th>Top grades (dispatched)</th><th>Check</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="meta">No FMS customers matched any order lines.</td></tr>'}</tbody></table></div>`;
+}
+
 function renderStats(cs) {
   const act = active(), cnt = k => act.filter(c => c.bucket === k).length;
   const overdue = cnt('1') + cnt('8') + cnt('15'), soon = cnt('soon'), ontrack = cnt('ontrack'), blocked = cnt('blocked');
-  const m = { total: cs.length, overdue, ontrack: ontrack + soon, blocked, done: completed.length, cycle: AN.cycle == null ? 0 : Math.round(AN.cycle) };
+  const OS = ordStats();
+  const m = { total: cs.length, overdue, ontrack: ontrack + soon, blocked, done: completed.length, cycle: AN.cycle == null ? 0 : Math.round(AN.cycle), ordered: OS.ordered, disp: Math.round(OS.disp) };
   const snap = snapshot(m);
   const stats = [
     { k: 'total', n: m.total, l: 'ENQUIRIES IN SYSTEM', cls: '', ic: 'layers', good: null },
@@ -711,7 +799,9 @@ function renderStats(cs) {
     { k: 'ontrack', n: m.ontrack, l: 'ON TRACK', sub: soon + ' due within ' + DUE_SOON_DAYS + ' days', cls: '', ic: 'speed', good: true },
     { k: 'blocked', n: blocked, l: 'BLOCKED, WITH A REASON', cls: 'blocked', ic: 'alert', good: false },
     { k: 'done', n: m.done, l: 'FULLY ONBOARDED', cls: 'done', ic: 'check', good: true },
-    { k: 'cycle', n: AN.cycle == null ? '—' : m.cycle + 'd', l: 'AVG DAYS · ENQUIRY → ORDER', sub: AN.cycleN ? 'Across ' + AN.cycleN + ' completed' : 'No completed orders with dates', cls: '', ic: 'clock', good: false }
+    { k: 'cycle', n: AN.cycle == null ? '—' : m.cycle + 'd', l: 'AVG DAYS · ENQUIRY → ORDER', sub: AN.cycleN ? 'Across ' + AN.cycleN + ' completed' : 'No completed orders with dates', cls: '', ic: 'clock', good: false },
+    { k: 'ordered', n: ORD_OK ? OS.ordered : '—', l: 'CUSTOMERS WITH DISPATCHED ORDERS', sub: ORD_OK ? OS.booked + ' more booked, not yet dispatched' : 'Orders sheet not loaded', cls: 'done', ic: 'cart', good: true },
+    { k: 'disp', n: ORD_OK ? fmtQ(OS.disp) + ' MT' : '—', l: 'DISPATCHED · NBD CUSTOMERS', sub: ORD_OK ? 'Confirmed ' + fmtQ(OS.conf) + ' · ordered ' + fmtQ(OS.qty) + ' MT' : '', cls: '', ic: 'layers', good: true }
   ];
   $('stat-row').innerHTML = stats.map(s => {
     let delta = '';
@@ -737,6 +827,8 @@ function renderFunnel() {
   const lastLost = r[8] - completed.length, pct9 = r[8] ? Math.round(lastLost / r[8] * 100) : 0;
   rows += `<div class="frow"><div class="fl"><small>✓</small>Ordering</div><div class="fbar"><i class="green" style="width:${completed.length / max * 100}%"></i></div>
     <div class="fv">${completed.length}<small class="${lastLost ? 'neg' : ''}">${lastLost ? '−' + lastLost + ' (' + pct9 + '%)' : 'no drop'}</small></div></div>`;
+  if (ORD_OK) { const od = DATA.filter(c => c.orders && c.orders.disp > 0).length;
+    rows += `<div class="frow"><div class="fl"><small>MT</small>Dispatched (Orders sheet)</div><div class="fbar"><i class="green" style="width:${od / max * 100}%"></i></div><div class="fv">${od}<small>${fmtQ(ordStats().disp)} MT</small></div></div>`; }
   const conv = r[0] ? Math.round(completed.length / r[0] * 100) : 0;
   $('funnel').innerHTML = `<h3>Pipeline funnel</h3><div class="psub">Enquiries that have reached each step, and how many are still waiting there. Overall conversion to first order: <b>${conv}%</b>.</div>${rows}`;
 }
@@ -861,13 +953,13 @@ function companyCell(c) {
 }
 function rowHtml(c) {
   const pill = c.stageStatus === 'blocked' ? '<span class="pill blocked">BLOCKED</span>' : '<span class="pill pending">PENDING</span>';
-  return `<tr tabindex="0" data-id="${c.id}">${companyCell(c)}<td data-label="Status">${pill}</td><td data-label="Reason / Planned" class="reason">${esc(reasonOrBrief(c))}</td><td data-label="Timing">${overdueCell(c)}</td><td data-label="Last completed">${lastDoneCell(c)}</td></tr>`;
+  return `<tr tabindex="0" data-id="${c.id}">${companyCell(c)}<td data-label="Status">${pill}</td><td data-label="Reason / Planned" class="reason">${esc(reasonOrBrief(c))}</td><td data-label="Timing">${overdueCell(c)}</td><td data-label="Last completed">${lastDoneCell(c)}</td><td data-label="Orders">${ordCell(c)}</td></tr>`;
 }
 function doneRowHtml(c) {
-  return `<tr tabindex="0" data-id="${c.id}">${companyCell(c)}<td data-label="Status"><span class="pill done">ORDERING</span></td><td data-label="Reason / Planned" class="reason">Completed all 9 steps</td><td data-label="Timing">—</td><td data-label="Last completed">${lastDoneCell(c)}</td></tr>`;
+  return `<tr tabindex="0" data-id="${c.id}">${companyCell(c)}<td data-label="Status"><span class="pill done">ORDERING</span></td><td data-label="Reason / Planned" class="reason">Completed all 9 steps</td><td data-label="Timing">—</td><td data-label="Last completed">${lastDoneCell(c)}</td><td data-label="Orders">${ordCell(c)}</td></tr>`;
 }
 function thead() {
-  const cols = [['company', 'Company'], ['', 'Contact'], ['', 'Requirement'], ['status', 'Status'], ['', 'Reason / Planned'], ['overdue', 'Timing'], ['last', 'Last completed']];
+  const cols = [['company', 'Company'], ['', 'Contact'], ['', 'Requirement'], ['status', 'Status'], ['', 'Reason / Planned'], ['overdue', 'Timing'], ['last', 'Last completed'], ['orders', 'Orders (MT)']];
   return '<thead><tr>' + cols.map(([k, l]) => k
     ? `<th class="sortable" data-sort="${k}" tabindex="0" aria-sort="${SORT.k === k ? (SORT.d > 0 ? 'ascending' : 'descending') : 'none'}">${l}${SORT.k === k ? (SORT.d > 0 ? ' ▲' : ' ▼') : ''}</th>`
     : `<th>${l}</th>`).join('') + '</tr></thead>';
@@ -876,6 +968,7 @@ const SORTS = {
   company: (a, b) => a.name.localeCompare(b.name),
   status: (a, b) => a.stageStatus.localeCompare(b.stageStatus),
   overdue: (a, b) => (a.overdueDays ?? -1e9) - (b.overdueDays ?? -1e9),
+  orders: (a, b) => (a.orders ? a.orders.disp : -1) - (b.orders ? b.orders.disp : -1),
   last: (a, b) => (a.lastDone ? a.lastDone.step : 0) - (b.lastDone ? b.lastDone.step : 0)
 };
 
@@ -883,12 +976,13 @@ function renderGroups() {
   let html = '', shown = 0;
   VISIBLE = [];
   const sorter = (a, b) => SORTS[SORT.k](a, b) * SORT.d;
-  if (F.f === 'done') {
-    const list = completed.filter(matches).sort(sorter);
+  if (F.f === 'done' || F.f === 'ordered') {
+    const isO = F.f === 'ordered';
+    const list = (isO ? DATA.filter(c => c.orders) : completed).filter(matches).sort(sorter);
     VISIBLE = list.slice(); shown = list.length;
     if (list.length) html = `<div class="card stage-group">
-      <div class="stage-group-head"><span class="n">Fully onboarded — placing orders</span><span class="action"></span><span class="count">${list.length} customer${list.length === 1 ? '' : 's'}</span></div>
-      <div class="table-wrap"><table>${thead()}<tbody>${list.map(doneRowHtml).join('')}</tbody></table></div></div>`;
+      <div class="stage-group-head"><span class="n">${isO ? 'Customers with orders in the Orders sheet' : 'Fully onboarded — placing orders'}</span><span class="action"></span><span class="count">${list.length} customer${list.length === 1 ? '' : 's'}</span></div>
+      <div class="table-wrap"><table>${thead()}<tbody>${list.map(c => c.currentStage === 10 ? doneRowHtml(c) : rowHtml(c)).join('')}</tbody></table></div></div>`;
   } else {
     stepOrder.forEach(s => {
       let list = byStage[s].blocked.concat(byStage[s].pending);
@@ -910,7 +1004,7 @@ function renderGroups() {
     });
   }
   $('groups').innerHTML = html || `<div class="card empty">${F.q ? 'No matches for “' + esc(F.q) + '”.' : 'Nothing in this view — try Reset.'}</div>`;
-  $('showing').textContent = 'Showing ' + shown + ' of ' + (F.f === 'done' ? completed.length : active().length);
+  $('showing').textContent = 'Showing ' + shown + ' of ' + (F.f === 'done' ? completed.length : F.f === 'ordered' ? DATA.filter(c => c.orders).length : active().length);
 }
 
 // ---- controls + URL-hash state ----
@@ -968,7 +1062,7 @@ function openDrawer(id) {
       <dt>Enquiry date</dt><dd>${fmtDt(c.enquiryDate)}</dd>
       <dt>Current owner</dt><dd>${c.currentStage === 10 ? '—' : esc(STEP_OWNERS[c.currentStage])}</dd>
       <dt>Lead remark</dt><dd>${esc(c.leadRemark) || '—'}</dd>
-    </dl><h4>9-step journey</h4><ol class="tl">${tl}</ol></div>`;
+    </dl>${ordersBlock(c)}<h4>9-step journey</h4><ol class="tl">${tl}</ol></div>`;
   $('drawer').classList.add('open'); $('scrim').classList.add('open');
   $('drawer-close').focus();
 }
@@ -983,12 +1077,12 @@ function closeDrawer() {
 // =========================================================================
 function exportCSV() {
   if (!VISIBLE.length) { toast('Nothing to export in this view'); return; }
-  const head = ['Company','Type','Division','Location','Contact','Phone','Email','Requirement','Step','Step name','Owner','Status','Reason','Planned date','Days overdue','Last completed step'];
+  const head = ['Company','Type','Division','Location','Contact','Phone','Email','Requirement','Step','Step name','Owner','Status','Reason','Planned date','Days overdue','Last completed step','Ordered MT','Confirmed MT','Dispatched MT'];
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const lines = VISIBLE.map(c => [c.name, c.type, c.division, c.location, c.contact, c.phone, c.mail, c.requirement,
     c.currentStage === 10 ? 'Done' : c.currentStage, c.stageName, c.currentStage === 10 ? '' : STEP_OWNERS[c.currentStage],
     c.currentStage === 10 ? 'Ordering' : c.stageStatus, c.reason, c.plannedDate, c.overdueDays == null ? '' : c.overdueDays,
-    c.lastDone ? 'Step ' + c.lastDone.step : ''].map(q).join(','));
+    c.lastDone ? 'Step ' + c.lastDone.step : '', c.orders ? c.orders.qty : '', c.orders ? c.orders.conf : '', c.orders ? c.orders.disp : ''].map(q).join(','));
   const blob = new Blob(['\ufeff' + [head.map(q).join(',')].concat(lines).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'nbd-pipeline-' + new Date().toLocaleDateString('en-CA') + '.csv';
@@ -1006,7 +1100,7 @@ function renderAll(customers) {
   AN = computeAnalytics(customers);
   buildSelects(); syncControls();
   renderStats(customers); renderFunnel(); renderCycle(); renderStations();
-  renderOwners(); renderAging(); renderCallout(customers); renderDQ(); renderGroups();
+  renderOwners(); renderAging(); renderOrders(); renderCallout(customers); renderDQ(); renderGroups();
   $('last-refreshed').textContent = 'Last refreshed: ' + new Date().toLocaleString();
 }
 function showStatusMessage(html) {
@@ -1016,8 +1110,11 @@ function showStatusMessage(html) {
 }
 async function loadAndRender(manual) {
   try {
-    const rows = await fetchSheetRows();
+    const rows = await fetchSheetRows(SHEET_NAME, 'A1:BH5000', MIN_COLS);
     DATA = parseCustomers(rows);
+    let om = null; ORD_ERR = '';
+    try { om = parseOrders(await fetchSheetRows(ORDERS_SHEET, 'A1:G20000', 7)); } catch (e) { ORD_ERR = e.message; }
+    ORD_OK = !!om; attachOrders(DATA, om);
     $('stale').style.display = 'none';
     $('status-screen').style.display = 'none';
     $('app-root').style.display = 'block';
@@ -1060,7 +1157,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { closeDrawer(); return; }
   if (e.key === 'Enter' || e.key === ' ') {
     const t = e.target;
-    if (t.matches && t.matches('th.sortable, .station, tbody tr[data-id]') && t.tagName !== 'BUTTON' && t.tagName !== 'A') { e.preventDefault(); t.click(); }
+    if (t.matches && t.matches('th.sortable, .station, tbody tr[data-id], .recon li[data-id]') && t.tagName !== 'BUTTON' && t.tagName !== 'A') { e.preventDefault(); t.click(); }
   }
 });
 
@@ -1089,7 +1186,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (e.target.closest('.acts a')) return;
-  const row = e.target.closest('tbody tr[data-id]');
+  const row = e.target.closest('tbody tr[data-id], .recon li[data-id]');
   if (row) { openDrawer(+row.dataset.id); return; }
 
   const station = e.target.closest('.station');
