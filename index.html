@@ -201,6 +201,23 @@
   .tabs button:hover{background:var(--blue-soft);} .tabs button.active{background:var(--navy);color:#fff;}
   .tab-badge{font:500 10.5px var(--mono);background:var(--blue-soft);color:var(--blue);padding:2px 8px;border-radius:99px;} .tabs button.active .tab-badge{background:rgba(255,255,255,.2);color:#fff;} .tab-badge:empty{display:none;}
   .tabpane{display:none;} .tabpane.active{display:block;}
+  /* ---- customer type ---- */
+  .ctrl-row{display:flex;gap:14px;justify-content:center;align-items:center;flex-wrap:wrap;margin-bottom:6px;}
+  .segbar{display:flex;gap:4px;padding:5px;background:rgba(255,255,255,.88);border:1px solid var(--blue-line);border-radius:999px;box-shadow:var(--shadow);}
+  .segbar button{font:600 12.5px var(--sans);padding:9px 16px;border-radius:999px;border:none;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;gap:7px;align-items:center;}
+  .segbar button:hover{background:var(--blue-soft);} .segbar button.active{background:var(--blue);color:#fff;}
+  .segbar .tab-badge{background:var(--blue-soft);color:var(--blue);} .segbar button.active .tab-badge{background:rgba(255,255,255,.22);color:#fff;}
+  .tbadge{display:inline-block;font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 7px;border-radius:5px;margin-left:6px;vertical-align:1px;}
+  .tbadge.new{background:var(--blue-soft);color:var(--blue);border:1px solid var(--blue-line);}
+  .tbadge.old{background:#e6e9f1;color:var(--navy);border:1px solid #cfd6e6;}
+  .segcmp{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .segcard{padding:22px 24px;} .segcard .sh{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .segcard h3{font-family:var(--serif);font-weight:600;font-size:18px;margin:0;color:var(--navy);}
+  .segm{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 12px;margin-top:18px;}
+  .segm b{display:block;font-family:var(--serif);font-size:26px;line-height:1.1;color:var(--navy);} .segm span{font:500 10px var(--mono);letter-spacing:.06em;color:var(--muted);}
+  .segm .r b{color:var(--alert);} .segm .a b{color:var(--pend);} .segm .g b{color:var(--done);}
+  @media (max-width:1000px){.segcmp{grid-template-columns:1fr;}}
+  @media (max-width:640px){.segbar{width:100%;} .segbar button{flex:1;justify-content:center;padding:9px 6px;font-size:12px;} .segm{grid-template-columns:repeat(2,1fr);}}
   /* ---- orders ---- */
   .pill.ord{background:var(--done-soft);color:var(--done);} .pill.book{background:var(--blue-soft);color:var(--blue);}
   .pill.flag{background:var(--pend-soft);color:var(--pend);} .pill.none{background:#eef2f9;color:var(--muted);}
@@ -318,14 +335,26 @@
       <div class="refresh-row"><span class="ts" id="last-refreshed"></span><button class="pill-btn" id="print-btn" aria-label="Print or save as PDF"></button></div>
     </section>
 
+    <div class="ctrl-row">
     <nav class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections">
       <button role="tab" id="tabbtn-overview" data-tab="overview" aria-selected="true" class="active">Pipeline overview</button>
       <button role="tab" id="tabbtn-work" data-tab="work" aria-selected="false">Orders &amp; follow-ups <span class="tab-badge" id="badge-work"></span></button>
     </nav>
+    <nav class="segbar" id="segs" aria-label="Customer type">
+      <button data-seg="all" class="active" aria-pressed="true">All customers <span class="tab-badge" id="seg-all"></span></button>
+      <button data-seg="NEW" aria-pressed="false">New <span class="tab-badge" id="seg-NEW"></span></button>
+      <button data-seg="OLD" aria-pressed="false">Old <span class="tab-badge" id="seg-OLD"></span></button>
+    </nav>
+    </div>
     <div class="tabpane active" id="tab-overview" role="tabpanel" aria-labelledby="tabbtn-overview">
     <section class="section" style="margin-top:8px;">
       <div class="section-head"><div class="eyebrow">Overview</div><h2>Where the pipeline stands</h2></div>
       <div class="stat-row" id="stat-row"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><div class="eyebrow">Customer type</div><h2>New vs old customers</h2></div>
+      <div class="segcmp" id="segcmp"></div>
     </section>
 
     <section class="section">
@@ -382,7 +411,6 @@
         <div class="selects">
           <select id="f-owner" aria-label="Filter by owner"></select>
           <select id="f-loc" aria-label="Filter by location"></select>
-          <select id="f-type" aria-label="Filter by customer type"></select>
           <button class="pill-btn" id="reset-btn">Reset</button>
           <button class="pill-btn" id="export-btn" aria-label="Export current view to CSV"></button>
         </div>
@@ -616,6 +644,7 @@ function parseCustomers(rows) {
     }
     rec.stageName = STEP_NAMES[rec.currentStage] || 'Completed / Ordering';
     rec.ownerGroup = OWNER_GROUP[rec.currentStage] || '';
+    rec.seg = /^\s*OLD/i.test(rec.type) ? 'OLD' : 'NEW';
     rec.bucket = bucketOf(rec);
     customers.push(rec);
   });
@@ -627,7 +656,7 @@ function parseCustomers(rows) {
 // =========================================================================
 let DATA = null, byStage = null, completed = null, AN = null, VISIBLE = [];
 const stepOrder = [1,2,3,4,5,6,7,8,9];
-let TAB = 'overview';
+let TAB = 'overview', SEG = 'all', ALL = null;
 const F = { f: 'all', o: '', l: '', t: '', q: '' };
 let SORT = { k: 'overdue', d: -1 };
 
@@ -738,6 +767,7 @@ function sparkline(vals) {
 // ---------- Orders sheet ----------
 const normName = s => String(s || '').toUpperCase().replace(/\(P\)/g, ' ').replace(/[^A-Z0-9]+/g, ' ')
   .replace(/\b(PVT|PRIVATE|LTD|LIMITED|LLP|AND)\b/g, ' ').replace(/\s+/g, '');
+const typeBadge = c => `<span class="tbadge ${c.seg === 'OLD' ? 'old' : 'new'}">${c.seg}</span>`;
 const fmtQ = n => (Math.round(n * 100) / 100).toLocaleString('en-IN');
 function parseOrders(rows) {
   let h = -1;
@@ -790,13 +820,13 @@ function renderOrders() {
   const stale = withO.filter(c => c.currentStage !== 10);
   const none = DATA.filter(c => c.currentStage === 10 && !(c.orders && c.orders.disp > 0));
   const box = (t, sub, cls, list, why) => `<div class="card"><h4>${t} <span class="pill ${cls}">${list.length}</span></h4><div class="meta" style="margin-top:4px">${sub}</div>
-    <ul>${list.length ? list.map(c => `<li data-id="${c.id}" tabindex="0"><span>${esc(c.name)}</span><span class="meta">${esc(why(c))}</span></li>`).join('') : '<li><span class="meta">None</span></li>'}</ul></div>`;
+    <ul>${list.length ? list.map(c => `<li data-id="${c.id}" tabindex="0"><span>${esc(c.name)}${typeBadge(c)}</span><span class="meta">${esc(why(c))}</span></li>`).join('') : '<li><span class="meta">None</span></li>'}</ul></div>`;
   rc.innerHTML = box('Confirmed buyers', 'FMS says ordering and the Orders sheet shows dispatches.', 'ord', good, c => fmtQ(c.orders.disp) + ' MT')
     + box('Ordering, FMS not updated', 'Orders exist but the FMS step 9 isn’t marked done.', 'flag', stale, c => 'Step ' + c.currentStage + ' · ' + fmtQ(c.orders.disp) + ' MT')
     + box('Marked ordering, no dispatch', 'FMS says ordering but no dispatched quantity found.', 'none', none, c => c.orders ? 'booked only' : 'no orders');
   const rows = withO.map(c => {
     const o = c.orders, pill = c.currentStage !== 10 ? `<span class="pill flag">UPDATE FMS · STEP ${c.currentStage}</span>` : o.disp > 0 ? '<span class="pill ord">ORDERING ✓</span>' : '<span class="pill book">BOOKED, NOT DISPATCHED</span>';
-    return `<tr tabindex="0" data-id="${c.id}"><td><div class="company">${esc(c.name)}</div><div class="meta">${esc(c.type)} · ${esc(c.location)}</div></td><td class="meta">${c.currentStage === 10 ? 'Completed' : 'Step ' + c.currentStage}</td>
+    return `<tr tabindex="0" data-id="${c.id}"><td><div class="company">${esc(c.name)}${typeBadge(c)}</div><div class="meta">${esc(c.division)} · ${esc(c.location)}</div></td><td class="meta">${c.currentStage === 10 ? 'Completed' : 'Step ' + c.currentStage}</td>
       <td class="qty">${fmtQ(o.qty)}</td><td class="qty">${fmtQ(o.conf)}</td><td class="qty">${fmtQ(o.disp)}</td><td class="meta">${o.lines}</td><td class="meta">${esc(topMats(o))}</td><td>${pill}</td></tr>`;
   }).join('');
   pn.innerHTML = `<h3>Pipeline customers in the Orders sheet</h3><div class="psub">Quantities in MT, summed over all order lines and matched to FMS customers by company name. Click a row for detail.</div>
@@ -808,7 +838,7 @@ function renderStats(cs) {
   const overdue = cnt('1') + cnt('8') + cnt('15'), soon = cnt('soon'), ontrack = cnt('ontrack'), blocked = cnt('blocked');
   const OS = ordStats();
   const m = { total: cs.length, overdue, ontrack: ontrack + soon, blocked, done: completed.length, cycle: AN.cycle == null ? 0 : Math.round(AN.cycle), ordered: OS.ordered, disp: Math.round(OS.disp) };
-  const snap = snapshot(m);
+  const snap = SEG === 'all' ? snapshot(m) : { prev: null, series: [] };
   const stats = [
     { k: 'total', n: m.total, l: 'ENQUIRIES IN SYSTEM', cls: '', ic: 'layers', good: null },
     { k: 'overdue', n: overdue, l: 'OVERDUE', sub: 'Planned date has passed', cls: 'pending', ic: 'clock', good: false },
@@ -821,7 +851,8 @@ function renderStats(cs) {
   ];
   $('stat-row').innerHTML = stats.map(s => {
     let delta = '';
-    if (!snap.prev) delta = '<div class="delta">Trend starts today</div>';
+    if (SEG !== 'all') delta = '<div class="delta">' + (SEG === 'NEW' ? 'New' : 'Old') + ' customers only</div>';
+    else if (!snap.prev) delta = '<div class="delta">Trend starts today</div>';
     else if (s.k !== 'cycle' || AN.cycle != null) {
       const d = m[s.k] - (snap.prev[s.k] || 0);
       const cls = d === 0 || s.good === null ? '' : ((d > 0) === s.good ? 'good' : 'bad');
@@ -963,7 +994,7 @@ function acts(c) {
   return `<div class="acts">${c.phone ? `<a href="tel:${esc(c.phone.replace(/\s+/g, ''))}" title="Call" aria-label="Call ${esc(c.contact || c.name)}">${icon('phone')}</a>` : ''}${c.mail ? `<a href="mailto:${esc(c.mail)}" title="Email" aria-label="Email ${esc(c.contact || c.name)}">${icon('mail')}</a>` : ''}<button class="copy" data-copy="${esc(copy)}" title="Copy contact" aria-label="Copy contact details">${icon('copy')}</button></div>`;
 }
 function companyCell(c) {
-  return `<td data-label="Company"><div class="company">${esc(c.name)}</div><div class="meta">${esc(c.type)} · ${esc(c.division)} · ${esc(c.location)}</div></td>
+  return `<td data-label="Company"><div class="company">${esc(c.name)}${typeBadge(c)}</div><div class="meta">${esc(c.division)} · ${esc(c.location)}</div></td>
     <td data-label="Contact" class="meta">${esc(c.contact) || '—'}<br>${esc(c.phone)}${acts(c)}</td>
     <td data-label="Requirement" class="meta">${esc(c.requirement)}</td>`;
 }
@@ -1027,6 +1058,7 @@ function renderGroups() {
 function saveHash() {
   const p = new URLSearchParams();
   if (TAB !== 'overview') p.set('tab', TAB);
+  if (SEG !== 'all') p.set('seg', SEG);
   if (F.f !== 'all') p.set('f', F.f);
   ['o', 'l', 't', 'q'].forEach(k => F[k] && p.set(k, F[k]));
   try { const h = p.toString(); history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) {}
@@ -1034,6 +1066,7 @@ function saveHash() {
 function loadHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   TAB = p.get('tab') === 'work' ? 'work' : 'overview';
+  SEG = ['NEW', 'OLD'].includes(p.get('seg')) ? p.get('seg') : 'all';
   F.f = p.get('f') || 'all'; F.o = p.get('o') || ''; F.l = p.get('l') || ''; F.t = p.get('t') || ''; F.q = p.get('q') || '';
 }
 function fillSelect(id, label, values, cur) {
@@ -1045,7 +1078,6 @@ function buildSelects() {
   const uniq = k => [...new Set(DATA.map(c => c[k]).filter(v => v && v !== '—'))].sort((a, b) => a.localeCompare(b));
   fillSelect('f-owner', 'All owners', OWNERS, F.o);
   fillSelect('f-loc', 'All locations', uniq('location'), F.l);
-  fillSelect('f-type', 'All types', uniq('type'), F.t);
 }
 function syncControls() {
   document.querySelectorAll('#filters button').forEach(b => b.classList.toggle('active', b.dataset.f === F.f));
@@ -1060,14 +1092,33 @@ function setTab(t, scroll) {
   saveHash();
   if (scroll) window.scrollTo({ top: Math.max(0, $('tabs').getBoundingClientRect().top + window.scrollY - 84), behavior: 'smooth' });
 }
-function updateBadges() { $('badge-work').textContent = active().length + ' open'; }
+function syncSeg() { document.querySelectorAll('.segbar button').forEach(b => { const on = b.dataset.seg === SEG; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on); }); }
+function setSeg(v) { SEG = v; syncSeg(); saveHash(); if (ALL) renderAll(ALL); }
+function segStats(list) {
+  const act = list.filter(c => c.currentStage !== 10), done = list.filter(c => c.currentStage === 10);
+  let cs = 0, cn = 0;
+  done.forEach(c => { const a9 = parseDateDMY(c.steps[9].actual); if (a9 && c.enqDate && a9 >= c.enqDate) { cs += (a9 - c.enqDate) / 864e5; cn++; } });
+  return { total: list.length, open: act.length, late: act.filter(isLate).length, blk: act.filter(c => c.bucket === 'blocked').length, done: done.length,
+    conv: list.length ? Math.round(done.length / list.length * 100) : 0, ord: list.filter(c => c.orders && c.orders.disp > 0).length,
+    disp: list.reduce((a, c) => a + (c.orders ? c.orders.disp : 0), 0), cycle: cn ? cs / cn : null };
+}
+function renderSegments() {
+  $('segcmp').innerHTML = ['NEW', 'OLD'].map(sg => {
+    const x = segStats(ALL.filter(c => c.seg === sg)), it = (v, l, cls) => `<div class="${cls || ''}"><b>${v}</b><span>${l}</span></div>`;
+    return `<div class="card segcard"><div class="sh"><h3>${sg === 'NEW' ? 'New customers' : 'Old (existing) customers'}</h3><span class="tbadge ${sg.toLowerCase()}">${sg}</span></div>
+      <div class="segm">${it(x.total, 'ENQUIRIES')}${it(x.open, 'STILL OPEN')}${it(x.late, 'OVERDUE', 'a')}${it(x.blk, 'BLOCKED', 'r')}${it(x.done, 'ONBOARDED', 'g')}${it(x.conv + '%', 'CONVERSION')}
+      ${it(ORD_OK ? x.ord : '—', 'WITH DISPATCHES', 'g')}${it(ORD_OK ? fmtQ(x.disp) + ' MT' : '—', 'DISPATCHED')}${it(x.cycle == null ? '—' : Math.round(x.cycle) + 'd', 'AVG TO ORDER')}</div></div>`;
+  }).join('');
+}
+function updateBadges() {
+  $('seg-all').textContent = ALL.length; $('seg-NEW').textContent = ALL.filter(c => c.seg === 'NEW').length; $('seg-OLD').textContent = ALL.filter(c => c.seg === 'OLD').length; $('badge-work').textContent = active().length + ' open'; }
 
 // =========================================================================
 // DRAWER
 // =========================================================================
 let lastFocus = null;
 function openDrawer(id) {
-  const c = DATA[id]; if (!c) return;
+  const c = ALL[id]; if (!c) return;
   lastFocus = document.activeElement;
   const pill = c.currentStage === 10 ? '<span class="pill done">ORDERING</span>' : c.stageStatus === 'blocked' ? '<span class="pill blocked">BLOCKED</span>' : '<span class="pill pending">PENDING</span>';
   const tl = stepOrder.map(s => {
@@ -1078,9 +1129,10 @@ function openDrawer(id) {
     const extra = cur ? (c.stageStatus === 'blocked' ? '<br><b style="color:var(--alert)">Blocked:</b> ' + esc(c.reason || 'no reason recorded') : '<br>' + overdueCell(c)) : '';
     return `<li class="${cls}"><span class="dot"></span><div class="t">${s}. ${esc(STEP_NAMES[s])}</div><div class="d">${esc(STEP_OWNERS[s])}${dates ? '<br>' + dates : ''}${extra}</div></li>`;
   }).join('');
-  $('drawer').innerHTML = `<div class="drawer-head"><div><h3>${esc(c.name)}</h3><div class="meta">${esc(c.type)} · ${esc(c.division)} · ${esc(c.location)}</div><div style="margin-top:8px">${pill}</div></div>
+  $('drawer').innerHTML = `<div class="drawer-head"><div><h3>${esc(c.name)}</h3><div class="meta">${typeBadge(c)} ${esc(c.division)} · ${esc(c.location)}</div><div style="margin-top:8px">${pill}</div></div>
     <button class="icon-btn" id="drawer-close" aria-label="Close details">${icon('x')}</button></div>
     <div class="drawer-body"><dl class="kv">
+      <dt>Customer type</dt><dd>${c.seg === 'OLD' ? 'Old (existing) customer' : 'New customer'}</dd>
       <dt>Contact</dt><dd>${esc(c.contact) || '—'}</dd>
       <dt>Phone</dt><dd>${c.phone ? `<a href="tel:${esc(c.phone.replace(/\s+/g, ''))}">${esc(c.phone)}</a>` : '—'}</dd>
       <dt>Email</dt><dd>${c.mail ? `<a href="mailto:${esc(c.mail)}">${esc(c.mail)}</a>` : '—'}</dd>
@@ -1121,12 +1173,14 @@ function exportCSV() {
 // =========================================================================
 // LOAD
 // =========================================================================
-function renderAll(customers) {
+function renderAll(all) {
+  ALL = all;
+  const customers = DATA = SEG === 'all' ? all : all.filter(c => c.seg === SEG);
   const b = buildBuckets(customers);
   byStage = b.bs; completed = b.done;
   AN = computeAnalytics(customers);
   buildSelects(); syncControls();
-  renderStats(customers); renderFunnel(); renderCycle(); renderStations();
+  renderStats(customers); renderSegments(); renderFunnel(); renderCycle(); renderStations();
   renderOwners(); renderAging(); renderOrders(); renderCallout(customers); renderDQ(); renderGroups(); updateBadges();
   $('last-refreshed').textContent = 'Last refreshed: ' + new Date().toLocaleString();
 }
@@ -1138,14 +1192,14 @@ function showStatusMessage(html) {
 async function loadAndRender(manual) {
   try {
     const rows = await fetchSheetRows(SHEET_NAME, 'A1:BH5000', MIN_COLS);
-    DATA = parseCustomers(rows);
+    ALL = DATA = parseCustomers(rows);
     let om = null; ORD_ERR = '';
     try { om = parseOrders(await fetchSheetRows(ORDERS_SHEET, 'A1:G20000', 7)); } catch (e) { ORD_ERR = e.message; }
-    ORD_OK = !!om; attachOrders(DATA, om);
+    ORD_OK = !!om; attachOrders(ALL, om);
     $('stale').style.display = 'none';
     $('status-screen').style.display = 'none';
     $('app-root').style.display = 'block';
-    renderAll(DATA);
+    renderAll(ALL);
     if (manual === true) toast('Refreshed just now');
   } catch (err) {
     if (DATA) {
@@ -1168,7 +1222,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('export-btn').innerHTML = icon('download') + 'Export CSV';
   $('print-btn').innerHTML = icon('print') + 'Print / PDF';
   loadHash();
-  setTab(TAB, false);
+  setTab(TAB, false); syncSeg();
   loadAndRender();
   if (AUTO_REFRESH_MS > 0) setInterval(() => loadAndRender(false), AUTO_REFRESH_MS);
   $('search').addEventListener('input', e => { F.q = e.target.value.trim(); if (F.q) setTab('work', false); saveHash(); if (DATA) renderGroups(); });
@@ -1190,6 +1244,8 @@ document.addEventListener('keydown', e => {
 });
 
 document.addEventListener('click', e => {
+  const segBtn = e.target.closest('.segbar button');
+  if (segBtn) { setSeg(segBtn.dataset.seg); return; }
   const tabBtn = e.target.closest('.tabs button');
   if (tabBtn) { setTab(tabBtn.dataset.tab, true); return; }
   if (e.target.closest('#refresh-btn')) { loadAndRender(true); return; }
